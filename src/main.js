@@ -15,10 +15,14 @@ const database = client.database;
 const storage = client.storage;
 
 module.exports = async (req, res) => {
-  console.log("teste");
   try {
     // Listar documentos da coleção 'stories'
     const response = await database.listDocuments(process.env.STORIES_COLLECTION_ID);
+
+    if (!response || !response.documents) {
+      console.error('Nenhum documento encontrado.');
+      return res.status(404).json({ message: 'Nenhum documento encontrado.' });
+    }
 
     for (const story of response.documents) {
       const storyCreatedAt = moment(story.$createdAt);
@@ -26,12 +30,20 @@ module.exports = async (req, res) => {
 
       // Verificar se o story tem mais de 1 dia
       if (currentDate.diff(storyCreatedAt, 'days') >= 1) {
-        // Apagar o arquivo no storage
-        await storage.deleteFile(story.storyId);
-        // Apagar o documento da coleção
-        await database.deleteDocument(process.env.STORIES_COLLECTION_ID, story.$id);
+        try {
+          // Apagar o arquivo no storage
+          const deleteFileResponse = await storage.deleteFile(story.storyId);
+          console.log('Arquivo apagado:', deleteFileResponse);
 
-        console.log(`Story com ID ${story.$id} apagado com sucesso.`);
+          // Apagar o documento da coleção
+          const deleteDocumentResponse = await database.deleteDocument(process.env.STORIES_COLLECTION_ID, story.$id);
+          console.log('Documento apagado:', deleteDocumentResponse);
+
+          console.log(`Story com ID ${story.$id} apagado com sucesso.`);
+        } catch (deleteError) {
+          console.error(`Erro ao apagar story com ID ${story.$id}:`, deleteError);
+          continue; // Ignorar e continuar com o próximo story
+        }
       }
     }
 
