@@ -1,55 +1,54 @@
 const sdk = require('node-appwrite');
-const moment = require('moment');
 
-// Criação do cliente do Appwrite
-const client = new sdk.Client();
+module.exports = async function (req, res) {
+  // Configuração do Appwrite
+  const client = new sdk.Client();
+  client
+    .setEndpoint(process.env.APPWRITE_ENDPOINT)
+    .setProject(process.env.APPWRITE_PROJECT_ID)
+    .setKey(process.env.APPWRITE_API_KEY);
 
-// Configuração do cliente
-client
-  .setEndpoint(process.env.ENDPOINT) // Substitua com seu endpoint
-  .setProject(process.env.PROJECT_ID) // Substitua com seu ID do projeto
-  .setKey(process.env.API_KEY); // Substitua com sua chave de API
+  const databases = new sdk.Databases(client);
+  const storage = new sdk.Storage(client);
 
-// Acessando diretamente os serviços através da instância correta
-const database = new sdk.Database(client);  // Aqui criamos a instância corretamente
-const storage = new sdk.Storage(client);    // E para storage também
-
-module.exports = async (req, res) => {
   try {
-    // Listar documentos da coleção 'stories'
-    const response = await database.listDocuments(process.env.STORIES_COLLECTION_ID);
+    // Calcula a data de ontem
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    // Busca stories criados antes de ontem
+    const storiesToDelete = await databases.listDocuments(
+      process.env.APPWRITE_DATABASE_ID, 
+      process.env.STORIES_COLLECTION_ID,
+      [
+        sdk.Query.lessThan('$createdAt', yesterday.toISOString())
+      ]
+    );
 
-    if (!response || !response.documents) {
-      console.error('Nenhum documento encontrado.');
-      return res.status(404).json({ message: 'Nenhum documento encontrado.' });
-    }
-
-    for (const story of response.documents) {
-      const storyCreatedAt = moment(story.$createdAt);
-      const currentDate = moment();
-
-      // Verificar se o story tem mais de 1 dia
-      if (currentDate.diff(storyCreatedAt, 'days') >= 1) {
-        try {
-          // Apagar o arquivo no storage
-          const deleteFileResponse = await storage.deleteFile(story.storyId);
-          console.log('Arquivo apagado:', deleteFileResponse);
-
-          // Apagar o documento da coleção
-          const deleteDocumentResponse = await database.deleteDocument(process.env.STORIES_COLLECTION_ID, story.$id);
-          console.log('Documento apagado:', deleteDocumentResponse);
-
-          console.log(`Story com ID ${story.$id} apagado com sucesso.`);
-        } catch (deleteError) {
-          console.error(`Erro ao apagar story com ID ${story.$id}:`, deleteError);
-          continue; // Ignorar e continuar com o próximo story
-        }
+    // Itera e deleta cada story
+    for (const story of storiesToDelete.documents) {
+      // Primeiro, deleta o arquivo do storage
+      if (story.storyUrl) {
+        await storage.deleteFile(
+          process.env.STORAGE_BUCKET_ID, 
+          story.storyUrl
+        );
       }
+
+      // Depois, deleta o documento da coleção
+      await databases.deleteDocument(
+        process.env.APPWRITE_DATABASE_ID,
+        process.env.STORIES_COLLECTION_ID,
+        story.$id
+      );
     }
 
-    res.status(200).json({ message: 'Stories antigos apagados com sucesso.' });
+    res.json({
+      message: `Deleted ${storiesToDelete.documents.length} old stories`
+    });
+
   } catch (error) {
-    console.error('Erro ao apagar stories antigos:', error);
-    res.status(500).json({ message: 'Erro ao apagar stories antigos.' });
+    console.error('Error deleting stories:', error);
+    res.json({ error: error.message });
   }
 };
