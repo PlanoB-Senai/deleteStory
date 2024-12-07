@@ -29,10 +29,14 @@ module.exports = async function (req, res) {
     for (const story of storiesToDelete.documents) {
       // Primeiro, deleta o arquivo do storage
       if (story.storyUrl) {
-        await storage.deleteFile(
-          process.env.STORAGE_BUCKET_ID, 
-          story.storyUrl
-        );
+        try {
+          await storage.deleteFile(
+            process.env.STORAGE_BUCKET_ID, 
+            story.storyUrl
+          );
+        } catch (storageError) {
+          console.error(`Error deleting storage file ${story.storyUrl}:`, storageError);
+        }
       }
 
       // Depois, deleta o documento da coleção
@@ -43,12 +47,23 @@ module.exports = async function (req, res) {
       );
     }
 
-    res.json({
-      message: `Deleted ${storiesToDelete.documents.length} old stories`
-    });
+    // Para Appwrite Functions, use return em vez de res.json()
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        message: `Deleted ${storiesToDelete.documents.length} old stories`
+      })
+    };
 
   } catch (error) {
     console.error('Error deleting stories:', error);
-    res.json({ error: error.message });
+    
+    // Para Appwrite Functions, use return para erros
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ 
+        error: error.message 
+      })
+    };
   }
 };
