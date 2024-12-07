@@ -10,9 +10,9 @@ client
   .setProject(process.env.PROJECT_ID) // Substitua com seu ID do projeto
   .setKey(process.env.API_KEY); // Substitua com sua chave de API
 
-// Acessando diretamente os serviços sem o 'new'
-const database = client.database;
-const storage = client.storage;
+// Acessando diretamente os serviços através da instância correta
+const database = new sdk.Database(client);  // Aqui criamos a instância corretamente
+const storage = new sdk.Storage(client);    // E para storage também
 
 module.exports = async (req, res) => {
   try {
