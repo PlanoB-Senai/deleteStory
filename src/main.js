@@ -1,6 +1,6 @@
 const sdk = require('node-appwrite');
 
-module.exports = async function (req, res) {
+module.exports = async function (req, res, context) {
   // Configuração do Appwrite
   const client = new sdk.Client();
   client
@@ -12,10 +12,19 @@ module.exports = async function (req, res) {
   const storage = new sdk.Storage(client);
 
   try {
+    context.log(process.env.APPWRITE_ENDPOINT);
+    context.log(process.env.APPWRITE_PROJECT_ID);
+    context.log(process.env.APPWRITE_API_KEY);
+    context.log(process.env.APPWRITE_DATABASE_ID);
+    context.log(process.env.STORIES_COLLECTION_ID);
+    context.log(process.env.STORAGE_BUCKET_ID);
+
     // Calcula a data de ontem
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     
+    context.log('Searching for stories older than:', yesterday.toISOString());
+
     // Busca stories criados antes de ontem
     const storiesToDelete = await databases.listDocuments(
       process.env.APPWRITE_DATABASE_ID, 
@@ -25,8 +34,12 @@ module.exports = async function (req, res) {
       ]
     );
 
+    context.log(`Found ${storiesToDelete.documents.length} stories to delete`);
+
     // Itera e deleta cada story
     for (const story of storiesToDelete.documents) {
+      context.log(`Processing story: ${story.$id}`);
+
       // Primeiro, deleta o arquivo do storage
       if (story.storyUrl) {
         try {
@@ -34,20 +47,27 @@ module.exports = async function (req, res) {
             process.env.STORAGE_BUCKET_ID, 
             story.storyUrl
           );
+          context.log(`Deleted storage file: ${story.storyUrl}`);
         } catch (storageError) {
-          console.error(`Error deleting storage file ${story.storyUrl}:`, storageError);
+          context.error(`Error deleting storage file ${story.storyUrl}:`, storageError);
         }
       }
 
       // Depois, deleta o documento da coleção
-      await databases.deleteDocument(
-        process.env.APPWRITE_DATABASE_ID,
-        process.env.STORIES_COLLECTION_ID,
-        story.$id
-      );
+      try {
+        await databases.deleteDocument(
+          process.env.APPWRITE_DATABASE_ID,
+          process.env.STORIES_COLLECTION_ID,
+          story.$id
+        );
+        context.log(`Deleted document: ${story.$id}`);
+      } catch (docError) {
+        context.error(`Error deleting document ${story.$id}:`, docError);
+      }
     }
 
-    // Para Appwrite Functions, use return em vez de res.json()
+    // Retorna o resultado usando context
+    context.log(`Deleted ${storiesToDelete.documents.length} old stories`);
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -56,9 +76,7 @@ module.exports = async function (req, res) {
     };
 
   } catch (error) {
-    console.error('Error deleting stories:', error);
-    
-    // Para Appwrite Functions, use return para erros
+    context.error('Error deleting stories:', error);
     return {
       statusCode: 500,
       body: JSON.stringify({ 
